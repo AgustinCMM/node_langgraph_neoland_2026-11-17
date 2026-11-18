@@ -1,13 +1,15 @@
-import { StateGraph, START, END, MessagesValue, StateSchema, MemorySaver } from "@langchain/langgraph";
-import { HumanMessage } from "@langchain/core/messages";
-import { ChatGroq } from "@langchain/groq";
-import { tool } from "@langchain/core/tools";
-import { z } from "zod";
-import { WebSocketServer } from "ws";
-import "dotenv/config";
+import { StateGraph, START, END, MessagesValue, StateSchema, MemorySaver } from "@langchain/langgraph"; // LangGraph: plano, estado y memoria
+import { HumanMessage } from "@langchain/core/messages"; // LangChain: "esto lo dijo una persona"
+import { ChatGroq } from "@langchain/groq";              // LangChain: enchufe con Groq
+import { tool } from "@langchain/core/tools";            // LangChain: envoltorio de herramientas
+import { z } from "zod";                                 // Describe la forma de los datos
+import { WebSocketServer } from "ws";                    // La ventanilla web
+import "dotenv/config";                                  // Carga GROQ_API_KEY del .env
 
-const MiEstado = new StateSchema({ messages: MessagesValue });   // ← del paso 6
+// 1. ESTADO: una carpeta con un cajón "messages" que se va acumulando
+const MiEstado = new StateSchema({ messages: MessagesValue });
 
+// 2. HERRAMIENTA: la calculadora
 const sumar = tool(
   ({ a, b }) => {
       console.log(`[⚙️ Calculando ${a} + ${b}...]`);
@@ -16,10 +18,11 @@ const sumar = tool(
   { name: "sumar", description: "Suma dos números", schema: z.object({ a: z.number(), b: z.number() }) }
 );
 
+// 3. IA que conoce la calculadora
 const ia = new ChatGroq({ model: "openai/gpt-oss-20b", temperature: 0 }).bindTools([sumar]);
 
+// 4. NODOS Y DECISIÓN
 async function nodoIA(estado) { return { messages: [await ia.invoke(estado.messages)] }; }
-
 async function nodoHerramientas(estado) {
     const ultimoMensaje = estado.messages[estado.messages.length - 1];
     const resultados = [];
@@ -28,13 +31,13 @@ async function nodoHerramientas(estado) {
     }
     return { messages: resultados };
 }
-
 function decidirCamino(estado) {
     const ultimoMensaje = estado.messages[estado.messages.length - 1];
     if (ultimoMensaje.tool_calls && ultimoMensaje.tool_calls.length > 0) return "herramientas";
     return END;
 }
 
+// 5. GRAFO con memoria
 const memoria = new MemorySaver();
 const grafo = new StateGraph(MiEstado)
     .addNode("ia", nodoIA)
@@ -44,9 +47,7 @@ const grafo = new StateGraph(MiEstado)
     .addEdge("herramientas", "ia")
     .compile({ checkpointer: memoria });
 
-    // ==========================================
-// SERVIDOR WEBSOCKET (sustituye a readline)
-// ==========================================
+// 6. SERVIDOR WEBSOCKET
 const wss = new WebSocketServer({ port: 8080 });
 
 console.log("=========================================");
